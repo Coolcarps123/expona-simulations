@@ -2,6 +2,14 @@ import argparse, numpy as np, pandas as pd, os
 from sklearn.utils import resample
 from src.sim import run_sim
 
+BURST_CONFIGS = [
+    {"p_burst": 0.00, "amp": 1.0},
+    {"p_burst": 0.01, "amp": 3.0},
+    {"p_burst": 0.03, "amp": 3.0},
+    {"p_burst": 0.05, "amp": 5.0},
+    {"p_burst": 0.10, "amp": 5.0},
+]
+
 def run_volatility_grid(fast=True):
     # parameter grid
     mechanisms = ["off", "linear", "flat", "adaptive"]
@@ -11,20 +19,28 @@ def run_volatility_grid(fast=True):
 
     rows = []
     for mech in mechanisms:
-        for d in deltas:
-            for seed in seeds:
-                df, meta = run_sim(
-                    steps=20000 if fast else 60000,
-                    seed=seed, delta=d, mechanism=mech, L_mult=L
-                )
-                summary = meta["summary"]
-                summary.update({
-                    "mechanism": mech,
-                    "delta": d,
-                    "L": L,
-                    "seed": seed
-                })
-                rows.append(summary)
+        for cfg in BURST_CONFIGS:
+            for d in deltas:
+                for seed in seeds:
+                    df, meta = run_sim(
+                        steps=20000 if fast else 60000,
+                        seed=seed,
+                        delta=d,
+                        mechanism=mech,
+                        L_mult=L,
+                        burst_p=cfg["p_burst"],
+                        burst_amp=cfg["amp"],
+                    )
+                    summary = meta["summary"]
+                    summary.update({
+                        "mechanism": mech,
+                        "delta": d,
+                        "L": L,
+                        "seed": seed,
+                        "p_burst": cfg["p_burst"],
+                        "burst_amp": cfg["amp"]
+                    })
+                    rows.append(summary)
 
     out = pd.DataFrame(rows)
     os.makedirs("out", exist_ok=True)

@@ -8,7 +8,7 @@ from .agents import noise, mean_reverter
 from .metrics import summarize
 
 def run_sim(steps=20000, seed=1, delta=15, mechanism="adaptive",
-            L_mult=10.0, kappa_mr=0.2, tau_params=None):
+            L_mult=10.0, kappa_mr=0.2, tau_params=None, burst_p=0.01, burst_amp=3.0):
     import numpy as np, pandas as pd
     rng = np.random.default_rng(seed)
     tau_params = tau_params or {}
@@ -28,7 +28,7 @@ def run_sim(steps=20000, seed=1, delta=15, mechanism="adaptive",
     for t in range(steps):
         # baseline and burst scaling
         scale = mkt.baseline_daily_vol / (86400 / delta)
-        burst = 1.0 + 3.0 * (rng.random() < 0.01)
+        burst = 1.0 + (burst_amp - 1.0) * (rng.random() < burst_p)
         scale_now = scale * burst
 
         # agent behavior
