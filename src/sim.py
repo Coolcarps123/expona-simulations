@@ -9,6 +9,7 @@ from .metrics import summarize
 
 def run_sim(steps=20000, seed=1, delta=15, mechanism="adaptive",
             L_mult=10.0, kappa_mr=0.2, tau_params=None):
+    import numpy as np, pandas as pd
     rng = np.random.default_rng(seed)
     tau_params = tau_params or {}
     tau_fn = get_tau(mechanism, **tau_params)
@@ -16,34 +17,55 @@ def run_sim(steps=20000, seed=1, delta=15, mechanism="adaptive",
     windows = VolumeWindows(delta_seconds=delta)
     mkt = Market(price0=1.0, supply=1_000_000.0, baseline_daily_vol=50_000.0, L_mult=L_mult)
 
-    # EMA for price baseline (~30d)
+    # EMA for 30-day baseline
     hl_steps = (30*86400)//delta
     ema_alpha = np.log(2)/hl_steps
     pbar = mkt.price
 
     rows = []
     seconds = 0
-    for t in range(steps):
-        scale = mkt.baseline_daily_vol / (86400/delta)
-        x = 0.7*noise(rng, scale) + 0.3*mean_reverter(rng, mkt.price, pbar, kappa=kappa_mr, scale=scale)
 
+    for t in range(steps):
+        # baseline and burst scaling
+        scale = mkt.baseline_daily_vol / (86400 / delta)
+        burst = 1.0 + 3.0 * (rng.random() < 0.01)
+        scale_now = scale * burst
+
+        # agent behavior
+        x = 0.7 * noise(rng, scale_now) + 0.3 * mean_reverter(
+            rng, mkt.price, pbar, kappa=kappa_mr, scale=scale_now
+        )
+
+        # compute τ(r)
         V24 = windows.V24()
         V30 = windows.V30()
         r = (V24 / V30) if V30 > 0 else 1.0
         tau = tau_fn(r)
 
+        # tax feedback: dampen trade size
+        x *= (1.0 - tau * 50)
+
+        # execute trade + update system
         mkt.execute(x)
-        pbar = ema_alpha*mkt.price + (1-ema_alpha)*pbar
+        pbar = ema_alpha * mkt.price + (1 - ema_alpha) * pbar
         windows.step(abs(x))
 
-        rows.append({"t": t, "sec": seconds, "price": mkt.price, "V24": V24, "V30": V30, "r": r, "tau": tau})
+        rows.append({
+            "t": t, "sec": seconds, "price": mkt.price,
+            "V24": V24, "V30": V30, "r": r, "tau": tau
+        })
         seconds += delta
 
+    # finalize
     df = pd.DataFrame(rows)
-    meta = {"params": dict(steps=steps, seed=seed, delta=delta, mechanism=mechanism,
-                           L_mult=L_mult, kappa_mr=kappa_mr, tau_params=tau_params)}
+    meta = {
+        "params": dict(steps=steps, seed=seed, delta=delta,
+                       mechanism=mechanism, L_mult=L_mult,
+                       kappa_mr=kappa_mr, tau_params=tau_params)
+    }
     meta["summary"] = summarize(df, delta_seconds=delta)
     return df, meta
+
 
 def main():
     ap = argparse.ArgumentParser()
